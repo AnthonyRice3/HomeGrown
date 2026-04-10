@@ -14,6 +14,13 @@ function headers(): Record<string, string> {
   };
 }
 
+export interface SagahUser {
+  userId: string;
+  email: string;
+  name: string;
+  metadata?: Record<string, unknown>;
+}
+
 // 1. Register / upsert an end-user
 export async function sagahRegisterUser(data: {
   email: string;
@@ -27,6 +34,20 @@ export async function sagahRegisterUser(data: {
     body: JSON.stringify(data),
   });
   return res.json() as Promise<{ userId: string; isNew: boolean }>;
+}
+
+// 1b. Fetch an existing user by email (returns null if not found)
+export async function sagahGetUserByEmail(email: string): Promise<SagahUser | null> {
+  const res = await fetch(
+    `${BASE}/api/v1/users?email=${encodeURIComponent(email)}`,
+    { method: "GET", headers: headers() }
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) return null;
+  const body = await res.json() as SagahUser | { data?: SagahUser };
+  // Handle both { userId, email, ... } and { data: { ... } } response shapes
+  if ("data" in body && body.data) return body.data;
+  return body as SagahUser;
 }
 
 // 2. Create a booking / appointment
