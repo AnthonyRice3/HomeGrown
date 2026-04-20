@@ -106,13 +106,27 @@ export async function sagahSendEmail(data: {
 
 
 // 4. Create a Stripe PaymentIntent — returns { clientSecret }
-export async function sagahCreateCheckout(data: Record<string, any>) {
+export async function sagahCreateCheckout(data: {
+  amount: number;
+  metadata?: Record<string, string>;
+}) {
   const res = await fetch(`${BASE}/api/v1/payments/checkout`, {
     method: "POST",
     headers: headers(),
     body: JSON.stringify(data),
   });
-  return res.json() as Promise<any>;
+  return res.json() as Promise<{ clientSecret: string }>;
 }
 
-// NOTE: example hosted /payments/checkout usage removed — use `sagahCreateCheckout()` instead
+// 5. Check if a date+time slot is available (no existing bookings)
+export async function sagahCheckAvailability(date: string, time: string): Promise<boolean> {
+  const res = await fetch(
+    `${BASE}/api/v1/bookings?date=${encodeURIComponent(date)}&time=${encodeURIComponent(time)}`,
+    { method: "GET", headers: headers() }
+  );
+  // On API error, be optimistic and allow the booking attempt
+  if (!res.ok) return true;
+  const body = await res.json();
+  const list: unknown[] = Array.isArray(body) ? body : (Array.isArray(body?.data) ? body.data : []);
+  return list.length === 0;
+}

@@ -6,7 +6,6 @@ import Nav, { type NavUser } from "@/components/Nav";
 import Services from "@/components/Services";
 import AuthModal, { type AuthUser } from "@/components/AuthModal";
 import BookingModal from "@/components/BookingModal";
-import PayModal from "@/components/PayModal";
 import type { Service } from "@/lib/services";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -27,7 +26,6 @@ export default function HomePage() {
   const [showAuth, setShowAuth] = useState(false);
   const [authMode, setAuthMode] = useState<"signin" | "signup">("signup");
   const [showBooking, setShowBooking] = useState(false);
-  const [showPayment, setShowPayment] = useState(false);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
@@ -71,9 +69,10 @@ export default function HomePage() {
     setShowBooking(true);
   }
 
-  function openPayment(service: Service) {
-    setSelectedService(service);
-    setShowPayment(true);
+  function openPayment(_service: Service) {
+    // Payment now flows through BookingModal after availability check
+    setSelectedService(_service);
+    setShowBooking(true);
   }
 
   async function handleContactSubmit(e: React.FormEvent) {
@@ -215,7 +214,7 @@ export default function HomePage() {
         </section>
 
         {/* ── SERVICES ──────────────────────────────────────────────────── */}
-        <Services onBook={openBooking} onPurchase={openPayment} onOpenAuth={openAuth} isLoggedIn={!!user} />
+        <Services onBook={openBooking} onOpenAuth={openAuth} isLoggedIn={!!user} />
 
         {/* ── GALLERY ───────────────────────────────────────────────────── */}
         <section id="gallery" className="py-28 px-6">
@@ -367,9 +366,6 @@ export default function HomePage() {
       )}
       {showBooking && (
         <BookingModal service={selectedService} user={user} onClose={() => { setShowBooking(false); setSelectedService(null); }} />
-      )}
-      {showPayment && selectedService && (
-        <PayModal service={selectedService} user={user} onClose={() => { setShowPayment(false); setSelectedService(null); }} />
       )}
     </>
   );

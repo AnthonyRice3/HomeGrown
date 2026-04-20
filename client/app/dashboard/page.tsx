@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import BookingModal from "@/components/BookingModal";
-import PayModal from "@/components/PayModal";
 import { SERVICES, SERVICE_CATEGORIES, type Service } from "@/lib/services";
 import type { SagahBooking } from "@/lib/sagah";
 
@@ -43,7 +42,6 @@ export default function DashboardPage() {
 
   // Modals
   const [showBooking, setShowBooking] = useState(false);
-  const [showPayment, setShowPayment] = useState(false);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
 
   // Contact
@@ -92,11 +90,6 @@ export default function DashboardPage() {
   function openBooking(service?: Service) {
     setSelectedService(service ?? null);
     setShowBooking(true);
-  }
-
-  function openPayment(service: Service) {
-    setSelectedService(service);
-    setShowPayment(true);
   }
 
   function reBook(booking: SagahBooking) {
@@ -299,15 +292,9 @@ export default function DashboardPage() {
                         <div className="flex gap-2">
                           <button
                             onClick={() => openBooking(service)}
-                            className="border border-white/20 hover:border-amber-400 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors"
+                            className="bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold px-5 py-2 rounded-lg transition-colors"
                           >
-                            Book
-                          </button>
-                          <button
-                            onClick={() => openPayment(service)}
-                            className="bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold px-4 py-2 rounded-lg transition-colors"
-                          >
-                            Pay Now
+                            Book Session
                           </button>
                         </div>
                       </div>
@@ -417,13 +404,6 @@ export default function DashboardPage() {
           service={selectedService}
           user={user}
           onClose={() => setShowBooking(false)}
-        />
-      )}
-      {showPayment && selectedService && (
-        <PayModal
-          service={selectedService}
-          user={user}
-          onClose={() => setShowPayment(false)}
         />
       )}
     </div>

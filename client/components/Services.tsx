@@ -11,12 +11,11 @@ import {
 
 interface ServicesProps {
   onBook: (service: Service) => void;
-  onPurchase: (service: Service) => void;
   onOpenAuth: (mode: "signin" | "signup") => void;
   isLoggedIn: boolean;
 }
 
-export default function Services({ onBook, onPurchase, onOpenAuth, isLoggedIn }: ServicesProps) {
+export default function Services({ onBook, onOpenAuth, isLoggedIn }: ServicesProps) {
   const [activeTab, setActiveTab] = useState<ServiceCategory>("Workouts");
 
   const handleBook = (service: Service) => {
@@ -67,7 +66,6 @@ export default function Services({ onBook, onPurchase, onOpenAuth, isLoggedIn }:
               key={service.id}
               service={service}
               onBook={handleBook}
-              onPurchase={onPurchase}
             />
           ))}
         </div>
@@ -91,11 +89,9 @@ export default function Services({ onBook, onPurchase, onOpenAuth, isLoggedIn }:
 function ServiceCard({
   service,
   onBook,
-  onPurchase,
 }: {
   service: Service;
   onBook: (s: Service) => void;
-  onPurchase: (s: Service) => void;
 }) {
   return (
     <div className="flex flex-col bg-black border border-white/10 rounded-2xl overflow-hidden hover:border-amber-500/40 transition-colors group">
@@ -141,18 +137,12 @@ function ServiceCard({
         </div>
 
         {/* Actions */}
-        <div className="mt-4 grid grid-cols-2 gap-2">
+        <div className="mt-4">
           <button
             onClick={() => onBook(service)}
-            className="py-2 text-xs font-semibold bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-colors text-white"
+            className="w-full py-2.5 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-black rounded-lg transition-colors"
           >
-            Book
-          </button>
-          <button
-            onClick={() => onPurchase(service)}
-            className="py-2 text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-black rounded-lg transition-colors"
-          >
-            Buy Now
+            Book Session
           </button>
         </div>
       </div>
