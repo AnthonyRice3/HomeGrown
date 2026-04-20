@@ -50,6 +50,16 @@ export async function sagahGetUserByEmail(email: string): Promise<SagahUser | nu
   return body as SagahUser;
 }
 
+export interface SagahBooking {
+  bookingId: string;
+  service: string;
+  date: string;   // YYYY-MM-DD
+  time: string;
+  status?: string;
+  name?: string;
+  email?: string;
+}
+
 // 2. Create a booking / appointment
 export async function sagahCreateBooking(data: {
   name: string;
@@ -67,6 +77,19 @@ export async function sagahCreateBooking(data: {
   return res.json() as Promise<{ bookingId: string }>;
 }
 
+// 2b. Fetch all bookings for a user by email
+export async function sagahGetUserBookings(email: string): Promise<SagahBooking[]> {
+  const res = await fetch(
+    `${BASE}/api/v1/bookings?email=${encodeURIComponent(email)}`,
+    { method: "GET", headers: headers() }
+  );
+  if (!res.ok) return [];
+  const body = await res.json();
+  if (Array.isArray(body)) return body as SagahBooking[];
+  if (Array.isArray(body?.data)) return body.data as SagahBooking[];
+  return [];
+}
+
 // 3. Send a transactional email via Resend
 export async function sagahSendEmail(data: {
   to: string;
@@ -81,12 +104,15 @@ export async function sagahSendEmail(data: {
   return res.json();
 }
 
+
 // 4. Create a Stripe PaymentIntent — returns { clientSecret }
-export async function sagahCreateCheckout(data: { amount: number }) {
+export async function sagahCreateCheckout(data: Record<string, any>) {
   const res = await fetch(`${BASE}/api/v1/payments/checkout`, {
     method: "POST",
     headers: headers(),
     body: JSON.stringify(data),
   });
-  return res.json() as Promise<{ clientSecret: string }>;
+  return res.json() as Promise<any>;
 }
+
+// NOTE: example hosted /payments/checkout usage removed — use `sagahCreateCheckout()` instead
