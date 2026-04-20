@@ -25,6 +25,7 @@ interface StripeElements {
 interface StripeElement {
   mount: (selector: string) => void;
   unmount: () => void;
+  on: (event: string, handler: () => void) => void;
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -73,6 +74,7 @@ export default function BookingModal({ service: initialService, user, onClose }:
   const [stripeInstance, setStripeInstance] = useState<StripeInstance | null>(null);
   const [stripeElements, setStripeElements] = useState<StripeElements | null>(null);
   const [paymentElement, setPaymentElement] = useState<StripeElement | null>(null);
+  const [elementReady, setElementReady] = useState(false);
   const mountRef = useRef<HTMLDivElement>(null);
   const stripeInitRef = useRef(false);
 
@@ -162,20 +164,23 @@ export default function BookingModal({ service: initialService, user, onClose }:
     setPaymentElement(pe);
   }, [step, clientSecret]);
 
+  // Mount Payment Element into DOM and wait for ready event
   useEffect(() => {
-    if (step === "payment" && paymentElement && mountRef.current) {
-      paymentElement.mount("#bm-payment-element");
-    }
+    if (step !== "payment" || !paymentElement || !mountRef.current) return;
+
+    setElementReady(false);
+    paymentElement.on("ready", () => setElementReady(true));
+    paymentElement.mount("#bm-payment-element");
+
     return () => {
-      if (paymentElement) {
-        try { paymentElement.unmount(); } catch { /* ignore */ }
-      }
+      try { paymentElement.unmount(); } catch { /* ignore */ }
     };
-  }, [step, paymentElement]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentElement]);
 
   async function handlePay(e: React.FormEvent) {
     e.preventDefault();
-    if (!stripeInstance || !stripeElements || !chosen) return;
+    if (!stripeInstance || !stripeElements || !chosen || !elementReady) return;
 
     setStep("paying");
     setError(null);
@@ -233,6 +238,7 @@ export default function BookingModal({ service: initialService, user, onClose }:
     setStripeInstance(null);
     setStripeElements(null);
     setPaymentElement(null);
+    setElementReady(false);
     stripeInitRef.current = false;
   }
 
@@ -400,10 +406,15 @@ export default function BookingModal({ service: initialService, user, onClose }:
 
             <button
               type="submit"
-              disabled={step === "paying" || !stripeInstance}
+              disabled={step === "paying" || !elementReady}
               className="w-full bg-amber-500 hover:bg-amber-400 disabled:bg-amber-500/50 text-black font-bold py-3.5 rounded-xl transition-colors text-sm"
             >
-              {step === "paying" ? (
+              {!elementReady && step !== "paying" ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="w-4 h-4 rounded-full border-2 border-black/30 border-t-black animate-spin inline-block" />
+                  Loading payment form…
+                </span>
+              ) : step === "paying" ? (
                 <span className="flex items-center justify-center gap-2">
                   <span className="w-4 h-4 rounded-full border-2 border-black/30 border-t-black animate-spin inline-block" />
                   Processing payment…
