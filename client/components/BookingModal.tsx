@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SERVICES, SERVICE_CATEGORIES, type Service } from "@/lib/services";
+import type { StripeInstance, StripeElements, StripeElement } from "@/types/stripe";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 interface BookingUser {

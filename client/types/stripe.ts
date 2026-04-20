@@ -1,11 +1,6 @@
-// Global Stripe.js types — loaded via CDN <Script src="https://js.stripe.com/v3/" /> in layout.tsx
-declare global {
-  interface Window {
-    Stripe?: (key: string) => StripeInstance;
-  }
-}
+// Stripe.js types — CDN-loaded via <Script src="https://js.stripe.com/v3/" /> in layout.tsx
 
-interface StripeInstance {
+export interface StripeInstance {
   elements: (opts: { clientSecret: string; appearance?: object }) => StripeElements;
   confirmPayment: (opts: {
     elements: StripeElements;
@@ -14,15 +9,19 @@ interface StripeInstance {
   }) => Promise<{ error?: { message: string } }>;
 }
 
-interface StripeElements {
+export interface StripeElements {
   create: (type: string) => StripeElement;
   submit: () => Promise<{ error?: { message: string } }>;
 }
 
-interface StripeElement {
+export interface StripeElement {
   mount: (selector: string) => void;
   unmount: () => void;
   on: (event: string, handler: () => void) => void;
 }
 
-export {};
+declare global {
+  interface Window {
+    Stripe?: (key: string) => StripeInstance;
+  }
+}

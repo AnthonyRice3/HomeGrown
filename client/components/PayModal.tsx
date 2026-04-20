@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Service } from "@/lib/services";
+import type { StripeInstance, StripeElements, StripeElement } from "@/types/stripe";
 
 interface PayModalProps {
   service: Service;
