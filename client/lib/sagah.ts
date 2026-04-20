@@ -77,17 +77,28 @@ export async function sagahCreateBooking(data: {
   return res.json() as Promise<{ bookingId: string }>;
 }
 
-// 2b. Fetch all bookings for a user by email
+// 2b. Fetch all bookings and filter by email (SAGAH returns all bookings for the account)
 export async function sagahGetUserBookings(email: string): Promise<SagahBooking[]> {
   const res = await fetch(
-    `${BASE}/api/v1/bookings?email=${encodeURIComponent(email)}`,
+    `${BASE}/api/v1/bookings`,
     { method: "GET", headers: headers() }
   );
   if (!res.ok) return [];
   const body = await res.json();
-  if (Array.isArray(body)) return body as SagahBooking[];
-  if (Array.isArray(body?.data)) return body.data as SagahBooking[];
-  return [];
+
+  // Normalise response shape — SAGAH may return array directly or wrapped
+  let all: SagahBooking[] = [];
+  if (Array.isArray(body))           all = body as SagahBooking[];
+  else if (Array.isArray(body?.data))     all = body.data as SagahBooking[];
+  else if (Array.isArray(body?.bookings)) all = body.bookings as SagahBooking[];
+  else if (Array.isArray(body?.items))    all = body.items as SagahBooking[];
+
+  // Filter to this user's bookings — check common field name variants
+  const normalised = email.trim().toLowerCase();
+  return all.filter((b) => {
+    const bEmail = (b.email ?? (b as unknown as Record<string, unknown>).clientEmail ?? "") as string;
+    return bEmail.trim().toLowerCase() === normalised;
+  });
 }
 
 // 3. Send a transactional email via Resend
