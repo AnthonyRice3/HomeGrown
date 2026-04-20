@@ -81,6 +81,16 @@ export default function DashboardPage() {
     if (user?.email) fetchBookings(user.email);
   }, [user, fetchBookings]);
 
+  // Re-fetch bookings when the tab regains focus (e.g. returning via back button)
+  useEffect(() => {
+    if (!user?.email) return;
+    function onVisible() {
+      if (document.visibilityState === "visible") fetchBookings(user!.email);
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [user, fetchBookings]);
+
   // ── Handlers ─────────────────────────────────────────────────────────────
   function signOut() {
     try { localStorage.removeItem("hg_user"); } catch { /* ignore */ }

@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 function formatDate(d: string) {
@@ -19,6 +20,7 @@ function formatDate(d: string) {
 
 // ─── Inner component (uses useSearchParams) ───────────────────────────────────
 function BookingConfirmedContent() {
+  const router = useRouter();
   const params = useSearchParams();
   const service = params.get("service") ?? "";
   const date = params.get("date") ?? "";
@@ -121,12 +123,12 @@ function BookingConfirmedContent() {
               )}
 
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                <Link
-                  href="/dashboard"
+                <button
+                  onClick={() => { router.refresh(); router.push("/dashboard"); }}
                   className="bg-amber-500 hover:bg-amber-400 text-black font-bold px-8 py-3.5 rounded-full transition-colors text-sm"
                 >
                   View My Dashboard
-                </Link>
+                </button>
                 <Link
                   href="/"
                   className="border border-white/20 hover:border-white text-white font-semibold px-8 py-3.5 rounded-full transition-colors text-sm"
