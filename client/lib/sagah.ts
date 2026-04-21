@@ -51,77 +51,53 @@ export async function sagahGetUserByEmail(email: string): Promise<SagahUser | nu
 }
 
 export interface SagahBooking {
-  bookingId: string;
+  _id?: string;           // SAGAH primary identifier
+  bookingId?: string;     // alias
   service: string;
-  date: string;   // YYYY-MM-DD
-  time: string;
-  status?: string;
+  date: string;           // YYYY-MM-DD
+  time: string;           // as submitted (HH:MM or H:MM AM/PM)
+  duration?: number;
+  status?: "confirmed" | "pending" | "cancelled";
+  notes?: string;
   name?: string;
   email?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
-// 2. Create a booking / appointment
+// 2. Create a booking — returns { conflict: true } on 409
 export async function sagahCreateBooking(data: {
   name: string;
   email: string;
   service: string;
-  date: string;       // YYYY-MM-DD
+  date: string;
   time: string;
-  duration?: number;  // minutes
-}) {
+  duration?: number;
+  notes?: string;
+  userId?: string;
+}): Promise<{ bookingId?: string; conflict?: boolean; error?: string }> {
   const res = await fetch(`${BASE}/api/v1/bookings`, {
     method: "POST",
     headers: headers(),
     body: JSON.stringify(data),
   });
+  if (res.status === 409) {
+    const err = await res.json().catch(() => ({})) as { error?: string };
+    return { conflict: true, error: err.error };
+  }
   return res.json() as Promise<{ bookingId: string }>;
 }
 
-// 2b-internal. Fetch every booking from SAGAH and normalise the response shape.
-// SAGAH ignores all query params on GET /api/v1/bookings — it always returns everything.
-async function sagahFetchAllBookings(): Promise<Record<string, unknown>[]> {
-  const res = await fetch(`${BASE}/api/v1/bookings`, {
-    method: "GET",
-    headers: headers(),
-  });
-  if (!res.ok) return [];
-  const body = await res.json();
-
-  // Log raw shape once so Vercel logs reveal the actual field names
-  if (process.env.NODE_ENV !== "production") {
-    console.log("[sagah bookings raw]", JSON.stringify(body).slice(0, 500));
-  } else {
-    const sample = Array.isArray(body) ? body[0] : (body?.data?.[0] ?? body?.bookings?.[0] ?? body?.items?.[0] ?? null);
-    console.log("[sagah bookings] shape sample:", JSON.stringify(sample));
-  }
-
-  if (Array.isArray(body))                return body as Record<string, unknown>[];
-  if (Array.isArray(body?.data))          return body.data as Record<string, unknown>[];
-  if (Array.isArray(body?.bookings))      return body.bookings as Record<string, unknown>[];
-  if (Array.isArray(body?.items))         return body.items as Record<string, unknown>[];
-  return [];
-}
-
-// Helper: pick an email field from a raw booking object using common SAGAH field names
-function extractEmail(b: Record<string, unknown>): string {
-  return (
-    (b.email as string) ??
-    (b.clientEmail as string) ??
-    (b.client_email as string) ??
-    (b.userEmail as string) ??
-    (b.user_email as string) ??
-    (b.bookedBy as string) ??
-    ""
-  ).trim().toLowerCase();
-}
-
-// 2b. Fetch all bookings for a specific user (filtered client-side by email)
+// 2b. Fetch all bookings for a user by email
 export async function sagahGetUserBookings(email: string): Promise<SagahBooking[]> {
-  const all = await sagahFetchAllBookings();
-  const normalised = email.trim().toLowerCase();
-  return all
-    .filter((b) => extractEmail(b) === normalised)
-    .map((b) => b as unknown as SagahBooking);
+  const res = await fetch(
+    `${BASE}/api/v1/bookings?userEmail=${encodeURIComponent(email.trim().toLowerCase())}`,
+    { method: "GET", headers: headers() }
+  );
+  if (!res.ok) return [];
+  const body = await res.json() as { bookings?: SagahBooking[] } | SagahBooking[];
+  if (Array.isArray(body)) return body;
+  return (body as { bookings?: SagahBooking[] }).bookings ?? [];
 }
 
 // 3. Send a transactional email via Resend
@@ -152,17 +128,26 @@ export async function sagahCreateCheckout(data: {
   return res.json() as Promise<{ clientSecret: string }>;
 }
 
-// 5. Check if a date+time slot is available by fetching all bookings and filtering client-side
-export async function sagahCheckAvailability(date: string, time: string): Promise<boolean> {
-  const all = await sagahFetchAllBookings();
-  const d = date.trim();
-  const t = time.trim().toLowerCase();
-  const conflict = all.some((b) => {
-    const bDate = ((b.date as string) ?? "").trim();
-    const bTime = ((b.time as string) ?? "").trim().toLowerCase();
-    return bDate === d && bTime === t;
-  });
-  return !conflict;
+// 5. Get available time slots for a date from SAGAH
+export interface SagahAvailability {
+  date: string;
+  slotDuration: number;
+  available: string[];       // HH:MM 24h — open for booking
+  booked: string[];          // HH:MM 24h — already confirmed/pending
+  blocked: string[];         // HH:MM 24h — manually blocked by the trainer
+  isFullDayBlocked: boolean;
+}
+
+export async function sagahGetAvailability(date: string): Promise<SagahAvailability> {
+  const fallback: SagahAvailability = {
+    date, slotDuration: 60, available: [], booked: [], blocked: [], isFullDayBlocked: false,
+  };
+  const res = await fetch(
+    `${BASE}/api/v1/availability?date=${encodeURIComponent(date)}`,
+    { method: "GET", headers: headers() }
+  );
+  if (!res.ok) return fallback;
+  return res.json() as Promise<SagahAvailability>;
 }
 
 // ─── Messaging ───────────────────────────────────────────────────────────────

@@ -7,13 +7,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { name, email, service, date, time, duration } = body as {
+  const { name, email, service, date, time, duration, notes, userId } = body as {
     name?: string;
     email?: string;
     service?: string;
     date?: string;
     time?: string;
     duration?: number;
+    notes?: string;
+    userId?: string;
   };
 
   if (!name || !email || !service || !date || !time) {
@@ -36,8 +38,17 @@ export async function POST(req: NextRequest) {
     service: service.trim(),
     date,
     time,
-    duration,
+    ...(duration ? { duration } : {}),
+    ...(notes ? { notes: notes.trim() } : {}),
+    ...(userId ? { userId } : {}),
   });
+
+  if (booking.conflict) {
+    return NextResponse.json(
+      { error: booking.error ?? "That time slot was just taken.", conflict: true },
+      { status: 409 }
+    );
+  }
 
   // Send confirmation email (best-effort — don't block on failure)
   sagahSendEmail({

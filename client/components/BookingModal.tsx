@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SERVICES, SERVICE_CATEGORIES, type Service } from "@/lib/services";
 import type { StripeInstance, StripeElements, StripeElement } from "@/types/stripe";
@@ -16,13 +16,7 @@ interface BookingModalProps {
   onClose: () => void;
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-const TIME_SLOTS = [
-  "6:00 AM", "7:00 AM", "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM",
-  "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM",
-  "6:00 PM", "6:30 PM", "7:00 PM", "7:30 PM", "8:00 PM", "9:00 PM",
-];
-
+// ─── Constants & helpers ───────────────────────────────────────────────────────────────
 const ALL_SERVICES: Service[] = SERVICE_CATEGORIES.flatMap((cat) => SERVICES[cat]);
 const stripeKey = process.env.NEXT_PUBLIC_SAGAH_STRIPE_KEY ?? "";
 
@@ -30,7 +24,23 @@ function todayStr() {
   return new Date().toISOString().split("T")[0];
 }
 
-type Step = "select" | "checking" | "unavailable" | "payment" | "paying";
+// Convert SAGAH 24h "HH:MM" → "H:MM AM/PM" for display
+function formatSlot(hhmm: string): string {
+  if (!hhmm) return "";
+  const [h, m] = hhmm.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const hour = h % 12 || 12;
+  return `${hour}:${String(m).padStart(2, "0")} ${period}`;
+}
+
+interface SlotData {
+  available: string[];
+  booked: string[];
+  blocked: string[];
+  isFullDayBlocked: boolean;
+}
+
+type Step = "select" | "payment" | "paying";
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function BookingModal({ service: initialService, user, onClose }: BookingModalProps) {
@@ -42,7 +52,11 @@ export default function BookingModal({ service: initialService, user, onClose }:
     initialService?.id ?? ALL_SERVICES[0].id
   );
   const [date, setDate] = useState("");
-  const [time, setTime] = useState(TIME_SLOTS[0]);
+  const [time, setTime] = useState("");
+  const [slots, setSlots] = useState<SlotData | null>(null);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [preparingPayment, setPreparingPayment] = useState(false);
+  const [conflictError, setConflictError] = useState(false);
 
   const [step, setStep] = useState<Step>("select");
   const [error, setError] = useState<string | null>(null);
@@ -57,27 +71,33 @@ export default function BookingModal({ service: initialService, user, onClose }:
 
   const chosen = ALL_SERVICES.find((s) => s.id === selectedServiceId);
 
-  async function handleCheckAvailability() {
+  const fetchSlots = useCallback((d: string) => {
+    setSlotsLoading(true);
+    setSlots(null);
+    fetch(`/api/availability?date=${encodeURIComponent(d)}`)
+      .then((r) => r.json())
+      .then((data) => { setSlots(data as SlotData); setSlotsLoading(false); })
+      .catch(() => { setSlotsLoading(false); });
+  }, []);
+
+  // Fetch slots whenever the date changes
+  useEffect(() => {
+    if (!date) { setSlots(null); setTime(""); return; }
+    setTime("");
+    setConflictError(false);
+    fetchSlots(date);
+  }, [date, fetchSlots]);
+
+  async function handleProceedToPayment() {
     if (!name.trim()) { setError("Please enter your name."); return; }
     if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       setError("Please enter a valid email address."); return;
     }
     if (!date) { setError("Please select a date."); return; }
-
+    if (!time) { setError("Please select a time slot."); return; }
     setError(null);
-    setStep("checking");
-
+    setPreparingPayment(true);
     try {
-      const availRes = await fetch(
-        `/api/availability?date=${encodeURIComponent(date)}&time=${encodeURIComponent(time)}`
-      );
-      const availData = await availRes.json() as { available?: boolean; error?: string };
-
-      if (!availData.available) {
-        setStep("unavailable");
-        return;
-      }
-
       if (!chosen) throw new Error("Service not found.");
       const checkoutRes = await fetch("/api/checkout", {
         method: "POST",
@@ -97,13 +117,13 @@ export default function BookingModal({ service: initialService, user, onClose }:
       if (!checkoutData.clientSecret) {
         throw new Error(checkoutData.error ?? "Could not set up payment. Please try again.");
       }
-
       stripeInitRef.current = false;
       setClientSecret(checkoutData.clientSecret);
       setStep("payment");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
-      setStep("select");
+    } finally {
+      setPreparingPayment(false);
     }
   }
 
@@ -191,8 +211,8 @@ export default function BookingModal({ service: initialService, user, onClose }:
       return;
     }
 
-    // Inline success — create booking + send confirmation email
-    await fetch("/api/book", {
+    // Create booking — handle 409 if slot was taken between availability fetch and payment
+    const bookRes = await fetch("/api/book", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -202,7 +222,19 @@ export default function BookingModal({ service: initialService, user, onClose }:
         date,
         time,
       }),
-    }).catch(() => { /* best-effort */ });
+    });
+    const bookData = await bookRes.json().catch(() => ({})) as { conflict?: boolean; error?: string };
+    if (!bookRes.ok) {
+      if (bookData.conflict) {
+        goBackToSelect();
+        setConflictError(true);
+        fetchSlots(date);
+        return;
+      }
+      setError(bookData.error ?? "Booking failed. Please contact us directly.");
+      setStep("payment");
+      return;
+    }
 
     router.push(`/booking-confirmed?${bookingParams.toString()}&booked=1`);
     onClose();
@@ -211,6 +243,7 @@ export default function BookingModal({ service: initialService, user, onClose }:
   function goBackToSelect() {
     setStep("select");
     setError(null);
+    setPreparingPayment(false);
     setClientSecret(null);
     setStripeInstance(null);
     setStripeElements(null);
@@ -235,7 +268,7 @@ export default function BookingModal({ service: initialService, user, onClose }:
             </h2>
             <p className="text-white/50 text-xs mt-0.5">
               {step === "payment" || step === "paying"
-                ? `${chosen?.title} · ${date} · ${time}`
+                ? `${chosen?.title} · ${date} · ${formatSlot(time)}`
                 : "Select your service, date, and time."}
             </p>
           </div>
@@ -248,7 +281,7 @@ export default function BookingModal({ service: initialService, user, onClose }:
           )}
         </div>
 
-        {(step === "select" || step === "unavailable") && (
+        {step === "select" && (
           <div className="px-8 py-6 space-y-5">
             <div>
               <label className="block text-xs font-medium text-white/60 mb-1.5">Full Name</label>
@@ -293,39 +326,83 @@ export default function BookingModal({ service: initialService, user, onClose }:
               </select>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-medium text-white/60 mb-1.5">Date</label>
-                <input
-                  type="date"
-                  value={date}
-                  min={todayStr()}
-                  onChange={(e) => { setDate(e.target.value); if (step === "unavailable") setStep("select"); }}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-400 transition-colors text-sm scheme-dark"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-white/60 mb-1.5">Time</label>
-                <select
-                  value={time}
-                  onChange={(e) => { setTime(e.target.value); if (step === "unavailable") setStep("select"); }}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-400 transition-colors text-sm"
-                >
-                  {TIME_SLOTS.map((t) => (
-                    <option key={t} value={t} className="bg-zinc-900">{t}</option>
-                  ))}
-                </select>
-              </div>
+            <div>
+              <label className="block text-xs font-medium text-white/60 mb-1.5">Date</label>
+              <input
+                type="date"
+                value={date}
+                min={todayStr()}
+                onChange={(e) => setDate(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-400 transition-colors text-sm scheme-dark"
+              />
             </div>
 
-            {step === "unavailable" && (
+            {date && (
+              <div>
+                <label className="block text-xs font-medium text-white/60 mb-2">
+                  Available Times
+                  {slotsLoading && <span className="ml-2 text-white/30 font-normal">Loading…</span>}
+                </label>
+
+                {slotsLoading && (
+                  <div className="flex items-center gap-2 text-white/30 text-sm py-2">
+                    <span className="w-4 h-4 rounded-full border-2 border-white/20 border-t-white/60 animate-spin shrink-0" />
+                    Checking trainer&apos;s schedule…
+                  </div>
+                )}
+
+                {!slotsLoading && slots?.isFullDayBlocked && (
+                  <p className="text-white/50 text-sm bg-white/5 rounded-xl px-4 py-3">
+                    No sessions available on this date. Please choose another day.
+                  </p>
+                )}
+
+                {!slotsLoading && slots && !slots.isFullDayBlocked && slots.available.length === 0 && slots.booked.length === 0 && (
+                  <p className="text-white/50 text-sm bg-white/5 rounded-xl px-4 py-3">
+                    No slots configured for this date. Please choose another day.
+                  </p>
+                )}
+
+                {!slotsLoading && slots && !slots.isFullDayBlocked && (slots.available.length > 0 || slots.booked.length > 0) && (
+                  <div className="grid grid-cols-3 gap-2">
+                    {slots.available.map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => { setTime(t); setConflictError(false); }}
+                        className={`py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                          time === t
+                            ? "bg-amber-500 text-black"
+                            : "bg-white/5 border border-white/10 text-white hover:border-amber-400 hover:text-amber-400"
+                        }`}
+                      >
+                        {formatSlot(t)}
+                      </button>
+                    ))}
+                    {[...slots.booked, ...slots.blocked].map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        disabled
+                        title="Already booked"
+                        className="py-2.5 rounded-xl text-sm font-medium bg-white/5 border border-white/5 text-white/20 cursor-not-allowed line-through"
+                      >
+                        {formatSlot(t)}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {conflictError && (
               <div className="flex items-start gap-3 bg-red-400/10 border border-red-400/20 rounded-xl px-4 py-3">
                 <svg className="w-4 h-4 text-red-400 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                     d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <p className="text-red-400 text-sm">
-                  That time slot is already booked. Please select a different date or time.
+                  That slot was just taken. Please select another time.
                 </p>
               </div>
             )}
@@ -343,18 +420,17 @@ export default function BookingModal({ service: initialService, user, onClose }:
 
             <button
               type="button"
-              onClick={handleCheckAvailability}
-              className="w-full bg-amber-500 hover:bg-amber-400 text-black font-bold py-3.5 rounded-xl transition-colors text-sm"
+              onClick={handleProceedToPayment}
+              disabled={!time || !date || slotsLoading || !!slots?.isFullDayBlocked || preparingPayment}
+              className="w-full bg-amber-500 hover:bg-amber-400 disabled:bg-amber-500/50 text-black font-bold py-3.5 rounded-xl transition-colors text-sm"
             >
-              Check Availability →
+              {preparingPayment ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="w-4 h-4 rounded-full border-2 border-black/30 border-t-black animate-spin inline-block" />
+                  Setting up payment…
+                </span>
+              ) : "Proceed to Payment →"}
             </button>
-          </div>
-        )}
-
-        {step === "checking" && (
-          <div className="px-8 py-16 flex flex-col items-center justify-center gap-4 text-center">
-            <div className="w-12 h-12 rounded-full border-2 border-amber-500/30 border-t-amber-500 animate-spin" />
-            <p className="text-white/60 text-sm">Checking availability for {date} at {time}…</p>
           </div>
         )}
 
@@ -368,7 +444,7 @@ export default function BookingModal({ service: initialService, user, onClose }:
                 <span className="text-amber-400 text-xs font-bold uppercase tracking-wider">Slot available!</span>
               </div>
               <p className="text-white font-semibold text-sm">{chosen?.title}</p>
-              <p className="text-white/50 text-xs">{date} · {time}</p>
+              <p className="text-white/50 text-xs">{date} · {formatSlot(time)}</p>
               <p className="text-amber-400 font-bold text-sm pt-1">{chosen?.price}</p>
             </div>
 

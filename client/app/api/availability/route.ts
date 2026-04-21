@@ -1,24 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { sagahCheckAvailability } from "@/lib/sagah";
+import { sagahGetAvailability } from "@/lib/sagah";
 
 export async function GET(req: NextRequest) {
   const date = req.nextUrl.searchParams.get("date");
-  const time = req.nextUrl.searchParams.get("time");
 
-  if (!date || !time) {
-    return NextResponse.json({ error: "date and time are required" }, { status: 400 });
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return NextResponse.json({ error: "date is required (YYYY-MM-DD)" }, { status: 400 });
   }
 
-  // Validate date format: YYYY-MM-DD
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    return NextResponse.json({ error: "Invalid date format" }, { status: 400 });
+  // Past dates are never available
+  if (new Date(date + "T00:00:00") < new Date(new Date().toDateString())) {
+    return NextResponse.json({
+      date, slotDuration: 60, available: [], booked: [], blocked: [], isFullDayBlocked: true,
+    });
   }
 
-  // Reject past dates
-  if (new Date(date) < new Date(new Date().toDateString())) {
-    return NextResponse.json({ available: false });
-  }
-
-  const available = await sagahCheckAvailability(date, time);
-  return NextResponse.json({ available });
+  const availability = await sagahGetAvailability(date);
+  return NextResponse.json(availability);
 }
