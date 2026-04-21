@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import BookingModal from "@/components/BookingModal";
 import { SERVICES, SERVICE_CATEGORIES, type Service } from "@/lib/services";
-import type { SagahBooking } from "@/lib/sagah";
+import type { SagahBooking, SagahMessage } from "@/lib/sagah";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface StoredUser {
@@ -44,9 +44,13 @@ export default function DashboardPage() {
   const [showBooking, setShowBooking] = useState(false);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
 
-  // Contact
-  const [contactMsg, setContactMsg] = useState("");
-  const [contactStatus, setContactStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  // Messaging
+  const [messages, setMessages] = useState<SagahMessage[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [msgInput, setMsgInput] = useState("");
+  const [msgSending, setMsgSending] = useState(false);
+  const [msgError, setMsgError] = useState<string | null>(null);
+  const chatBottomRef = useRef<HTMLDivElement>(null);
 
   // Active section tab
   const [activeTab, setActiveTab] = useState<"bookings" | "services" | "contact">("bookings");
@@ -109,24 +113,70 @@ export default function DashboardPage() {
     openBooking(match);
   }
 
-  async function handleContact(e: React.FormEvent) {
-    e.preventDefault();
-    if (!user || !contactMsg.trim()) return;
-    setContactStatus("sending");
+  // ── Fetch messages ────────────────────────────────────────────────────────
+  const fetchMessages = useCallback(async (email: string) => {
+    setMessagesLoading(true);
     try {
-      const res = await fetch("/api/contact", {
+      const res = await fetch(`/api/messages?email=${encodeURIComponent(email)}`);
+      if (res.ok) {
+        const data = await res.json() as { messages: SagahMessage[] };
+        setMessages(data.messages ?? []);
+      }
+    } catch { /* silently fail */ }
+    finally { setMessagesLoading(false); }
+  }, []);
+
+  // Fetch messages when switching to contact tab
+  useEffect(() => {
+    if (activeTab === "contact" && user?.email) fetchMessages(user.email);
+  }, [activeTab, user, fetchMessages]);
+
+  // Poll for new replies every 15 s while on contact tab
+  useEffect(() => {
+    if (activeTab !== "contact" || !user?.email) return;
+    const id = setInterval(() => fetchMessages(user.email), 15_000);
+    return () => clearInterval(id);
+  }, [activeTab, user, fetchMessages]);
+
+  // Auto-scroll to bottom when messages update
+  useEffect(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  async function handleSendMessage(e: React.FormEvent) {
+    e.preventDefault();
+    if (!user || !msgInput.trim() || msgSending) return;
+    setMsgSending(true);
+    setMsgError(null);
+    const text = msgInput.trim();
+    setMsgInput("");
+    // Optimistically append
+    const optimistic: SagahMessage = {
+      _id: `opt-${Date.now()}`,
+      userEmail: user.email,
+      userName: user.name,
+      from: "user",
+      text,
+      read: false,
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, optimistic]);
+    try {
+      const res = await fetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: user.name,
-          email: user.email,
-          message: contactMsg.trim(),
-        }),
+        body: JSON.stringify({ email: user.email, name: user.name, text, userId: user.userId }),
       });
-      setContactStatus(res.ok ? "sent" : "error");
-      if (res.ok) setContactMsg("");
+      if (!res.ok) throw new Error("send failed");
+      // Re-fetch to get the server-assigned _id and any new replies
+      await fetchMessages(user.email);
     } catch {
-      setContactStatus("error");
+      setMsgError("Failed to send. Please try again.");
+      // Remove optimistic message on failure
+      setMessages((prev) => prev.filter((m) => m._id !== optimistic._id));
+      setMsgInput(text);
+    } finally {
+      setMsgSending(false);
     }
   }
 
@@ -217,19 +267,29 @@ export default function DashboardPage() {
 
         {/* ── Tab navigation ───────────────────────────────────── */}
         <div className="flex gap-1 p-1 bg-zinc-950 border border-white/10 rounded-xl mb-8 w-fit">
-          {(["bookings", "services", "contact"] as const).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-5 py-2 rounded-lg text-sm font-semibold capitalize transition-colors ${
-                activeTab === tab
-                  ? "bg-amber-500 text-black"
-                  : "text-white/50 hover:text-white"
-              }`}
-            >
-              {tab === "bookings" ? "My Bookings" : tab === "services" ? "Services" : "Contact"}
-            </button>
-          ))}
+        {([ "bookings", "services", "contact"] as const).map((tab) => {
+            const unread = tab === "contact"
+              ? messages.filter((m) => m.from === "client" && !m.read).length
+              : 0;
+            return (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`relative px-5 py-2 rounded-lg text-sm font-semibold capitalize transition-colors ${
+                  activeTab === tab
+                    ? "bg-amber-500 text-black"
+                    : "text-white/50 hover:text-white"
+                }`}
+              >
+                {tab === "bookings" ? "My Bookings" : tab === "services" ? "Services" : "Messages"}
+                {unread > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-white text-[10px] font-bold flex items-center justify-center">
+                    {unread}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {/* ══════════════════════════════════════════════════════════
@@ -317,93 +377,98 @@ export default function DashboardPage() {
         )}
 
         {/* ══════════════════════════════════════════════════════════
-            TAB: CONTACT
+            TAB: MESSAGES
         ══════════════════════════════════════════════════════════ */}
         {activeTab === "contact" && (
-          <div className="max-w-xl">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 bg-amber-500/10 rounded-xl flex items-center justify-center">
+          <div className="max-w-xl flex flex-col" style={{ height: "60vh", minHeight: 400 }}>
+            {/* Header */}
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-amber-500/10 rounded-xl flex items-center justify-center shrink-0">
                 <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                     d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
                 </svg>
               </div>
               <div>
-                <h2 className="font-bold text-white">Message Fitbaee</h2>
-                <p className="text-white/40 text-xs">We'll respond within 24 hours.</p>
+                <h2 className="font-bold text-white">Messages with Fitbaee</h2>
+                <p className="text-white/40 text-xs">Replies within 24 hours · auto-refreshes every 15 s</p>
               </div>
             </div>
 
-            {contactStatus === "sent" ? (
-              <div className="bg-zinc-950 border border-white/10 rounded-2xl p-8 flex flex-col items-center text-center gap-4">
-                <div className="w-12 h-12 bg-amber-500/10 rounded-full flex items-center justify-center">
-                  <svg className="w-6 h-6 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            {/* Thread */}
+            <div className="flex-1 overflow-y-auto bg-zinc-950 border border-white/10 rounded-2xl p-4 space-y-3 mb-3">
+              {messagesLoading && messages.length === 0 ? (
+                <div className="flex items-center justify-center h-full text-white/30 text-sm">
+                  <span className="w-5 h-5 rounded-full border-2 border-white/20 border-t-white/60 animate-spin mr-2" />
+                  Loading messages…
+                </div>
+              ) : messages.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
+                  <svg className="w-10 h-10 text-white/10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                      d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
                   </svg>
+                  <p className="text-white/30 text-sm">No messages yet.<br />Send one below to start the conversation.</p>
                 </div>
-                <h3 className="font-bold text-white">Message sent!</h3>
-                <p className="text-white/50 text-sm">We'll be in touch soon, {user.name.split(" ")[0]}.</p>
-                <button
-                  onClick={() => setContactStatus("idle")}
-                  className="text-amber-400 text-sm hover:underline"
-                >
-                  Send another message
-                </button>
-              </div>
-            ) : (
-              <form onSubmit={handleContact} className="bg-zinc-950 border border-white/10 rounded-2xl p-6 space-y-4">
-                {/* Pre-filled read-only sender info */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium text-white/50 mb-1.5">From (name)</label>
-                    <div className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-white/40 text-sm select-none">
-                      {user.name}
+              ) : (
+                messages.map((m) => (
+                  <div
+                    key={m._id}
+                    className={`flex ${ m.from === "user" ? "justify-end" : "justify-start" }`}
+                  >
+                    <div
+                      className={`max-w-[78%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
+                        m.from === "user"
+                          ? "bg-amber-500 text-black rounded-br-sm"
+                          : "bg-zinc-800 text-white rounded-bl-sm"
+                      }`}
+                    >
+                      {m.from === "client" && (
+                        <p className="text-xs font-bold text-amber-400 mb-1">Fitbaee</p>
+                      )}
+                      <p>{m.text}</p>
+                      <p className={`text-[10px] mt-1 ${ m.from === "user" ? "text-black/50" : "text-white/30" }`}>
+                        {new Date(m.createdAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                        {m.from === "user" && (
+                          <span className="ml-1">{m.read ? " ✓✓" : " ✓"}</span>
+                        )}
+                      </p>
                     </div>
                   </div>
-                  <div>
-                    <label className="block text-xs font-medium text-white/50 mb-1.5">From (email)</label>
-                    <div className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-white/40 text-sm truncate select-none">
-                      {user.email}
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-white/60 mb-1.5">Message</label>
-                  <textarea
-                    value={contactMsg}
-                    onChange={(e) => setContactMsg(e.target.value)}
-                    placeholder="Ask about a programme, your schedule, goals, or anything else…"
-                    required
-                    rows={6}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:border-amber-400 transition-colors text-sm resize-none"
-                  />
-                </div>
-
-                {contactStatus === "error" && (
-                  <p className="text-red-400 text-sm bg-red-400/10 rounded-xl px-4 py-3">
-                    Could not send. Please try again.
-                  </p>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={contactStatus === "sending" || !contactMsg.trim()}
-                  className="w-full bg-amber-500 hover:bg-amber-400 disabled:bg-amber-500/50 text-black font-bold py-3.5 rounded-xl transition-colors text-sm"
-                >
-                  {contactStatus === "sending" ? "Sending…" : "Send Message"}
-                </button>
-              </form>
-            )}
-
-            {/* Direct email fallback */}
-            <div className="mt-6 flex items-center gap-3 text-white/40 text-sm">
-              <svg className="w-4 h-4 text-amber-400/60 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
-              Or email directly: <a href="mailto:info@homegrown.fit" className="text-amber-400 hover:underline">info@homegrown.fit</a>
+                ))
+              )}
+              <div ref={chatBottomRef} />
             </div>
+
+            {/* Send input */}
+            <form onSubmit={handleSendMessage} className="flex gap-2">
+              <input
+                type="text"
+                value={msgInput}
+                onChange={(e) => setMsgInput(e.target.value)}
+                placeholder="Type a message…"
+                maxLength={2000}
+                disabled={msgSending}
+                className="flex-1 bg-zinc-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:border-amber-400 transition-colors text-sm disabled:opacity-50"
+              />
+              <button
+                type="submit"
+                disabled={msgSending || !msgInput.trim()}
+                className="bg-amber-500 hover:bg-amber-400 disabled:bg-amber-500/40 text-black font-bold px-5 py-3 rounded-xl transition-colors text-sm shrink-0"
+              >
+                {msgSending ? (
+                  <span className="w-4 h-4 rounded-full border-2 border-black/30 border-t-black animate-spin inline-block" />
+                ) : (
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                  </svg>
+                )}
+              </button>
+            </form>
+
+            {msgError && (
+              <p className="text-red-400 text-xs mt-2 bg-red-400/10 rounded-lg px-3 py-2">{msgError}</p>
+            )}
           </div>
         )}
       </main>

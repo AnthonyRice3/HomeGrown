@@ -77,28 +77,51 @@ export async function sagahCreateBooking(data: {
   return res.json() as Promise<{ bookingId: string }>;
 }
 
-// 2b. Fetch all bookings and filter by email (SAGAH returns all bookings for the account)
-export async function sagahGetUserBookings(email: string): Promise<SagahBooking[]> {
-  const res = await fetch(
-    `${BASE}/api/v1/bookings`,
-    { method: "GET", headers: headers() }
-  );
+// 2b-internal. Fetch every booking from SAGAH and normalise the response shape.
+// SAGAH ignores all query params on GET /api/v1/bookings — it always returns everything.
+async function sagahFetchAllBookings(): Promise<Record<string, unknown>[]> {
+  const res = await fetch(`${BASE}/api/v1/bookings`, {
+    method: "GET",
+    headers: headers(),
+  });
   if (!res.ok) return [];
   const body = await res.json();
 
-  // Normalise response shape — SAGAH may return array directly or wrapped
-  let all: SagahBooking[] = [];
-  if (Array.isArray(body))           all = body as SagahBooking[];
-  else if (Array.isArray(body?.data))     all = body.data as SagahBooking[];
-  else if (Array.isArray(body?.bookings)) all = body.bookings as SagahBooking[];
-  else if (Array.isArray(body?.items))    all = body.items as SagahBooking[];
+  // Log raw shape once so Vercel logs reveal the actual field names
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[sagah bookings raw]", JSON.stringify(body).slice(0, 500));
+  } else {
+    const sample = Array.isArray(body) ? body[0] : (body?.data?.[0] ?? body?.bookings?.[0] ?? body?.items?.[0] ?? null);
+    console.log("[sagah bookings] shape sample:", JSON.stringify(sample));
+  }
 
-  // Filter to this user's bookings — check common field name variants
+  if (Array.isArray(body))                return body as Record<string, unknown>[];
+  if (Array.isArray(body?.data))          return body.data as Record<string, unknown>[];
+  if (Array.isArray(body?.bookings))      return body.bookings as Record<string, unknown>[];
+  if (Array.isArray(body?.items))         return body.items as Record<string, unknown>[];
+  return [];
+}
+
+// Helper: pick an email field from a raw booking object using common SAGAH field names
+function extractEmail(b: Record<string, unknown>): string {
+  return (
+    (b.email as string) ??
+    (b.clientEmail as string) ??
+    (b.client_email as string) ??
+    (b.userEmail as string) ??
+    (b.user_email as string) ??
+    (b.bookedBy as string) ??
+    ""
+  ).trim().toLowerCase();
+}
+
+// 2b. Fetch all bookings for a specific user (filtered client-side by email)
+export async function sagahGetUserBookings(email: string): Promise<SagahBooking[]> {
+  const all = await sagahFetchAllBookings();
   const normalised = email.trim().toLowerCase();
-  return all.filter((b) => {
-    const bEmail = (b.email ?? (b as unknown as Record<string, unknown>).clientEmail ?? "") as string;
-    return bEmail.trim().toLowerCase() === normalised;
-  });
+  return all
+    .filter((b) => extractEmail(b) === normalised)
+    .map((b) => b as unknown as SagahBooking);
 }
 
 // 3. Send a transactional email via Resend
@@ -129,15 +152,57 @@ export async function sagahCreateCheckout(data: {
   return res.json() as Promise<{ clientSecret: string }>;
 }
 
-// 5. Check if a date+time slot is available (no existing bookings)
+// 5. Check if a date+time slot is available by fetching all bookings and filtering client-side
 export async function sagahCheckAvailability(date: string, time: string): Promise<boolean> {
+  const all = await sagahFetchAllBookings();
+  const d = date.trim();
+  const t = time.trim().toLowerCase();
+  const conflict = all.some((b) => {
+    const bDate = ((b.date as string) ?? "").trim();
+    const bTime = ((b.time as string) ?? "").trim().toLowerCase();
+    return bDate === d && bTime === t;
+  });
+  return !conflict;
+}
+
+// ─── Messaging ───────────────────────────────────────────────────────────────
+
+export interface SagahMessage {
+  _id: string;
+  userEmail: string;
+  userName: string;
+  userId?: string;
+  from: "user" | "client";
+  text: string;
+  read: boolean;
+  createdAt: string;
+}
+
+// 6. Fetch the full message thread for a user (also marks trainer replies as read)
+export async function sagahGetMessages(userEmail: string): Promise<SagahMessage[]> {
   const res = await fetch(
-    `${BASE}/api/v1/bookings?date=${encodeURIComponent(date)}&time=${encodeURIComponent(time)}`,
+    `${BASE}/api/v1/messages?userEmail=${encodeURIComponent(userEmail.trim().toLowerCase())}`,
     { method: "GET", headers: headers() }
   );
-  // On API error, be optimistic and allow the booking attempt
-  if (!res.ok) return true;
-  const body = await res.json();
-  const list: unknown[] = Array.isArray(body) ? body : (Array.isArray(body?.data) ? body.data : []);
-  return list.length === 0;
+  if (!res.ok) return [];
+  const body = await res.json() as { messages?: SagahMessage[] };
+  return body.messages ?? [];
+}
+
+// 7. Send a message from the end-user to the trainer
+export async function sagahSendMessage(data: {
+  userEmail: string;
+  userName: string;
+  text: string;
+  userId?: string;
+}): Promise<{ messageId: string }> {
+  const res = await fetch(`${BASE}/api/v1/messages`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({
+      ...data,
+      userEmail: data.userEmail.trim().toLowerCase(),
+    }),
+  });
+  return res.json() as Promise<{ messageId: string }>;
 }
