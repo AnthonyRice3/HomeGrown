@@ -120,12 +120,27 @@ export async function sagahSendEmail(data: {
 // 4. Create a Stripe PaymentIntent — returns { clientSecret }
 export async function sagahCreateCheckout(data: {
   amount: number;
+  // Attribution — required for /admin/actions and /admin/monetization
+  userId: string;       // sagahUserId (SAGAH Mongo _id)
+  clerkUserId: string;
+  userEmail: string;
+  userName: string;
   metadata?: Record<string, string>;
 }) {
   const res = await fetch(`${BASE}/api/v1/payments/checkout`, {
     method: "POST",
     headers: headers(),
-    body: JSON.stringify(data),
+    body: JSON.stringify({
+      hosted: false,        // custom Stripe Elements UI, not hosted checkout page
+      amount: data.amount,
+      currency: "usd",
+      // Attribution injected server-side — browser never supplies these
+      userId:      data.userId,
+      clerkUserId: data.clerkUserId,
+      userEmail:   data.userEmail,
+      userName:    data.userName,
+      ...(data.metadata ? { metadata: data.metadata } : {}),
+    }),
   });
   return res.json() as Promise<{ clientSecret: string }>;
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useUser, useClerk, SignInButton, SignUpButton } from "@clerk/nextjs";
+import { useUser, useClerk } from "@clerk/nextjs";
 
 const NAV_LINKS = [
   { label: "Services", href: "#services" },
@@ -112,16 +112,18 @@ export default function Nav() {
             </div>
           ) : (
             <>
-              <SignInButton mode="modal">
-                <button className="text-sm text-white/70 hover:text-white font-medium transition-colors">
-                  Sign in
-                </button>
-              </SignInButton>
-              <SignUpButton mode="modal">
-                <button className="bg-amber-500 hover:bg-amber-400 text-black text-sm font-bold px-4 py-2 rounded-full transition-colors">
-                  Join Free
-                </button>
-              </SignUpButton>
+              <Link
+                href="/sign-in"
+                className="text-sm text-white/70 hover:text-white font-medium transition-colors"
+              >
+                Sign in
+              </Link>
+              <Link
+                href="/sign-up"
+                className="bg-amber-500 hover:bg-amber-400 text-black text-sm font-bold px-4 py-2 rounded-full transition-colors"
+              >
+                Join Free
+              </Link>
             </>
           )}
         </div>
@@ -172,22 +174,20 @@ export default function Nav() {
               </div>
             ) : (
               <>
-                <SignInButton mode="modal">
-                  <button
-                    onClick={() => setMobileOpen(false)}
-                    className="text-sm text-white/70 hover:text-white font-medium"
-                  >
-                    Sign in
-                  </button>
-                </SignInButton>
-                <SignUpButton mode="modal">
-                  <button
-                    onClick={() => setMobileOpen(false)}
-                    className="bg-amber-500 text-black text-sm font-bold px-4 py-2 rounded-full"
-                  >
-                    Join Free
-                  </button>
-                </SignUpButton>
+                <Link
+                  href="/sign-in"
+                  onClick={() => setMobileOpen(false)}
+                  className="text-sm text-white/70 hover:text-white font-medium"
+                >
+                  Sign in
+                </Link>
+                <Link
+                  href="/sign-up"
+                  onClick={() => setMobileOpen(false)}
+                  className="bg-amber-500 text-black text-sm font-bold px-4 py-2 rounded-full"
+                >
+                  Join Free
+                </Link>
               </>
             )}
           </div>

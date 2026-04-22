@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { sagahCreateCheckout } from "@/lib/sagah";
+import { syncUserToSagah } from "@/lib/userSync";
 import { rateLimit, clientIp } from "@/lib/rateLimit";
 
 export async function POST(req: NextRequest) {
@@ -28,7 +29,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "amount must be an integer ≥ 50 (cents)" }, { status: 400 });
   }
 
-  const result = await sagahCreateCheckout({ amount, metadata });
+  // Derive all attribution from the server-side Clerk session — never from the browser
+  const { sagahUserId, email, name } = await syncUserToSagah(clerkUserId);
+
+  const result = await sagahCreateCheckout({
+    amount,
+    userId:      sagahUserId,
+    clerkUserId,
+    userEmail:   email,
+    userName:    name,
+    ...(metadata ? { metadata } : {}),
+  });
 
   if (!result.clientSecret) {
     return NextResponse.json({ error: "Could not create payment intent" }, { status: 502 });

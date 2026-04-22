@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
-import { useUser, useClerk } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
+import { useUser } from "@clerk/nextjs";
 import Nav from "@/components/Nav";
 import Services from "@/components/Services";
 import BookingModal from "@/components/BookingModal";
+import Link from "next/link";
 import type { Service } from "@/lib/services";
 
 const GALLERY = [
@@ -20,7 +22,7 @@ const GALLERY = [
 // ─── Page ────────────────────────────────────────────────────────────────────
 export default function HomePage() {
   const { isSignedIn } = useUser();
-  const { openSignIn, openSignUp } = useClerk();
+  const router = useRouter();
 
   const [showBooking, setShowBooking] = useState(false);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
@@ -38,7 +40,7 @@ export default function HomePage() {
   }, []);
 
   function openBooking(service?: Service) {
-    if (!isSignedIn) { openSignIn(); return; }
+    if (!isSignedIn) { router.push("/sign-in"); return; }
     setSelectedService(service ?? null);
     setShowBooking(true);
   }
@@ -182,7 +184,7 @@ export default function HomePage() {
         </section>
 
         {/* ── SERVICES ──────────────────────────────────────────────────── */}
-        <Services onBook={openBooking} onOpenAuth={() => openSignIn()} isLoggedIn={!!isSignedIn} />
+        <Services onBook={openBooking} onOpenAuth={() => router.push("/sign-in")} isLoggedIn={!!isSignedIn} />
 
         {/* ── GALLERY ───────────────────────────────────────────────────── */}
         <section id="gallery" className="py-28 px-6">
@@ -226,12 +228,12 @@ export default function HomePage() {
                 Book Your Session
               </button>
               {!isSignedIn && (
-                <button
-                  onClick={() => openSignUp()}
+                <Link
+                  href="/sign-up"
                   className="border border-white/20 hover:border-amber-400 text-white font-semibold px-10 py-4 rounded-full transition-colors text-base"
                 >
                   Create Free Account
-                </button>
+                </Link>
               )}
             </div>
           </div>
