@@ -1,14 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { sagahGetUserBookings } from "@/lib/sagah";
+import { syncUserToSagah } from "@/lib/userSync";
 
-export async function GET(req: NextRequest) {
-  const email = req.nextUrl.searchParams.get("email");
+export async function GET() {
+  const { userId: clerkUserId } = await auth();
+  if (!clerkUserId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return NextResponse.json({ error: "Valid email is required" }, { status: 400 });
-  }
-
-  const bookings = await sagahGetUserBookings(email.trim().toLowerCase());
-  console.log(`[dashboard] email=${email} bookings=${bookings.length}`, JSON.stringify(bookings));
+  const { email } = await syncUserToSagah(clerkUserId);
+  const bookings = await sagahGetUserBookings(email);
   return NextResponse.json({ bookings });
 }

@@ -3,18 +3,10 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useUser, useClerk } from "@clerk/nextjs";
 import BookingModal from "@/components/BookingModal";
 import { SERVICES, SERVICE_CATEGORIES, type Service } from "@/lib/services";
 import type { SagahBooking, SagahMessage } from "@/lib/sagah";
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-interface StoredUser {
-  name: string;
-  email: string;
-  userId?: string;
-}
-
-const ALL_SERVICES: Service[] = SERVICE_CATEGORIES.flatMap((cat) => SERVICES[cat]);
 
 function formatDate(dateStr: string) {
   try {
@@ -33,10 +25,16 @@ function isPast(dateStr: string) {
   return new Date(dateStr + "T00:00:00") < new Date(new Date().toDateString());
 }
 
+const ALL_SERVICES: Service[] = SERVICE_CATEGORIES.flatMap((cat) => SERVICES[cat]);
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
   const router = useRouter();
-  const [user, setUser] = useState<StoredUser | null>(null);
+  const { user: clerkUser, isLoaded, isSignedIn } = useUser();
+  const { signOut: clerkSignOut } = useClerk();
+  const userName = `${clerkUser?.firstName ?? ""} ${clerkUser?.lastName ?? ""}`.trim()
+    || (clerkUser?.primaryEmailAddress?.emailAddress ?? "");
+  const userEmail = clerkUser?.primaryEmailAddress?.emailAddress ?? "";
   const [bookings, setBookings] = useState<SagahBooking[]>([]);
   const [bookingsLoading, setBookingsLoading] = useState(true);
 
@@ -57,22 +55,15 @@ export default function DashboardPage() {
 
   // ── Auth guard ────────────────────────────────────────────────────────────
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem("hg_user");
-      if (!stored) { router.replace("/"); return; }
-      const parsed = JSON.parse(stored) as StoredUser;
-      if (!parsed?.email) { router.replace("/"); return; }
-      setUser(parsed);
-    } catch {
-      router.replace("/");
-    }
-  }, [router]);
+    if (!isLoaded) return;
+    if (!isSignedIn) router.replace("/");
+  }, [isLoaded, isSignedIn, router]);
 
-  // ── Fetch bookings ────────────────────────────────────────────────────────
-  const fetchBookings = useCallback(async (email: string) => {
+  // ── Fetch bookings ────────────────────────────────────────────────────────────
+  const fetchBookings = useCallback(async () => {
     setBookingsLoading(true);
     try {
-      const res = await fetch(`/api/dashboard?email=${encodeURIComponent(email)}`);
+      const res = await fetch("/api/dashboard");
       if (res.ok) {
         const data = await res.json() as { bookings: SagahBooking[] };
         setBookings(data.bookings ?? []);
@@ -82,23 +73,22 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (user?.email) fetchBookings(user.email);
-  }, [user, fetchBookings]);
+    if (isSignedIn) fetchBookings();
+  }, [isSignedIn, fetchBookings]);
 
   // Re-fetch bookings when the tab regains focus (e.g. returning via back button)
   useEffect(() => {
-    if (!user?.email) return;
+    if (!isSignedIn) return;
     function onVisible() {
-      if (document.visibilityState === "visible") fetchBookings(user!.email);
+      if (document.visibilityState === "visible") fetchBookings();
     }
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [user, fetchBookings]);
+  }, [isSignedIn, fetchBookings]);
 
-  // ── Handlers ─────────────────────────────────────────────────────────────
+  // ── Handlers ───────────────────────────────────────────────────────────────
   function signOut() {
-    try { localStorage.removeItem("hg_user"); } catch { /* ignore */ }
-    router.replace("/");
+    clerkSignOut(() => router.replace("/"));
   }
 
   function openBooking(service?: Service) {
@@ -114,10 +104,10 @@ export default function DashboardPage() {
   }
 
   // ── Fetch messages ────────────────────────────────────────────────────────
-  const fetchMessages = useCallback(async (email: string) => {
+  const fetchMessages = useCallback(async () => {
     setMessagesLoading(true);
     try {
-      const res = await fetch(`/api/messages?email=${encodeURIComponent(email)}`);
+      const res = await fetch("/api/messages");
       if (res.ok) {
         const data = await res.json() as { messages: SagahMessage[] };
         setMessages(data.messages ?? []);
@@ -128,15 +118,15 @@ export default function DashboardPage() {
 
   // Fetch messages when switching to contact tab
   useEffect(() => {
-    if (activeTab === "contact" && user?.email) fetchMessages(user.email);
-  }, [activeTab, user, fetchMessages]);
+    if (activeTab === "contact" && isSignedIn) fetchMessages();
+  }, [activeTab, isSignedIn, fetchMessages]);
 
   // Poll for new replies every 15 s while on contact tab
   useEffect(() => {
-    if (activeTab !== "contact" || !user?.email) return;
-    const id = setInterval(() => fetchMessages(user.email), 15_000);
+    if (activeTab !== "contact" || !isSignedIn) return;
+    const id = setInterval(() => fetchMessages(), 15_000);
     return () => clearInterval(id);
-  }, [activeTab, user, fetchMessages]);
+  }, [activeTab, isSignedIn, fetchMessages]);
 
   // Auto-scroll to bottom when messages update
   useEffect(() => {
@@ -145,7 +135,7 @@ export default function DashboardPage() {
 
   async function handleSendMessage(e: React.FormEvent) {
     e.preventDefault();
-    if (!user || !msgInput.trim() || msgSending) return;
+    if (!msgInput.trim() || msgSending) return;
     setMsgSending(true);
     setMsgError(null);
     const text = msgInput.trim();
@@ -153,8 +143,8 @@ export default function DashboardPage() {
     // Optimistically append
     const optimistic: SagahMessage = {
       _id: `opt-${Date.now()}`,
-      userEmail: user.email,
-      userName: user.name,
+      userEmail: userEmail,
+      userName: userName,
       from: "user",
       text,
       read: false,
@@ -165,11 +155,11 @@ export default function DashboardPage() {
       const res = await fetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: user.email, name: user.name, text, userId: user.userId }),
+        body: JSON.stringify({ text }),
       });
       if (!res.ok) throw new Error("send failed");
       // Re-fetch to get the server-assigned _id and any new replies
-      await fetchMessages(user.email);
+      await fetchMessages();
     } catch {
       setMsgError("Failed to send. Please try again.");
       // Remove optimistic message on failure
@@ -184,7 +174,7 @@ export default function DashboardPage() {
   const upcoming = bookings.filter((b) => !isPast(b.date));
   const past = bookings.filter((b) => isPast(b.date));
 
-  if (!user) return null; // waiting for auth check
+  if (!isLoaded || !isSignedIn) return null;
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -204,9 +194,9 @@ export default function DashboardPage() {
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center text-black font-bold text-sm">
-                {user.name.charAt(0).toUpperCase()}
+                {userName.charAt(0).toUpperCase()}
               </div>
-              <span className="text-sm text-white/70 hidden sm:block">{user.name.split(" ")[0]}</span>
+              <span className="text-sm text-white/70 hidden sm:block">{clerkUser?.firstName ?? userName.split(" ")[0]}</span>
             </div>
             <button
               onClick={signOut}
@@ -223,9 +213,9 @@ export default function DashboardPage() {
         <div className="mb-10">
           <p className="text-amber-400 text-xs font-bold uppercase tracking-widest mb-1">Member Dashboard</p>
           <h1 className="text-3xl md:text-4xl font-black text-white">
-            Welcome back, {user.name.split(" ")[0]}.
+            Welcome back, {clerkUser?.firstName ?? userName.split(" ")[0]}.
           </h1>
-          <p className="text-white/50 mt-1 text-sm">{user.email}</p>
+          <p className="text-white/50 mt-1 text-sm">{userEmail}</p>
         </div>
 
         {/* ── Stats ────────────────────────────────────────────── */}
@@ -477,7 +467,6 @@ export default function DashboardPage() {
       {showBooking && (
         <BookingModal
           service={selectedService}
-          user={user}
           onClose={() => setShowBooking(false)}
         />
       )}

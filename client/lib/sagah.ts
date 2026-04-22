@@ -25,6 +25,8 @@ export interface SagahUser {
 export async function sagahRegisterUser(data: {
   email: string;
   name: string;
+  clerkUserId?: string;
+  avatarUrl?: string;
   plan?: string;
   metadata?: Record<string, unknown>;
 }) {

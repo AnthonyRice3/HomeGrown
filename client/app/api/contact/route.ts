@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sagahSendEmail } from "@/lib/sagah";
+import { rateLimit, clientIp } from "@/lib/rateLimit";
 
 // Trainer's contact email — override via env if needed
 const TRAINER_EMAIL = process.env.TRAINER_EMAIL ?? "info@homegrown.fit";
 
 export async function POST(req: NextRequest) {
+  // Rate limit: 3 contact form submissions per 10 min per IP
+  const ip = clientIp(req);
+  if (!rateLimit(`contact:${ip}`, { max: 3, windowMs: 10 * 60 * 1000 })) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  }
+
   const body = await req.json().catch(() => null);
   if (!body) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });

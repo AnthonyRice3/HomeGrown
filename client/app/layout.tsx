@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
+import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
 
 const SITE_URL = "https://homegrownfb.fit";
@@ -209,20 +210,34 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+    <ClerkProvider
+      appearance={{
+        variables: {
+          colorPrimary: "#f59e0b",
+          colorBackground: "#09090b",
+          colorText: "#ffffff",
+          colorTextSecondary: "rgba(255,255,255,0.5)",
+          colorInputBackground: "#18181b",
+          colorInputText: "#ffffff",
+          borderRadius: "12px",
+        },
+      }}
     >
-      <head>
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-        />
-      </head>
-      <body className="min-h-full bg-black text-white">
-        <Script src="https://js.stripe.com/v3/" strategy="beforeInteractive" />
-        {children}
-      </body>
-    </html>
+      <html
+        lang="en"
+        className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      >
+        <head>
+          <script
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+          />
+        </head>
+        <body className="min-h-full bg-black text-white">
+          <Script src="https://js.stripe.com/v3/" strategy="beforeInteractive" />
+          {children}
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }

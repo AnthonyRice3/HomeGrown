@@ -2,14 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
-import Nav, { type NavUser } from "@/components/Nav";
+import { useUser, useClerk } from "@clerk/nextjs";
+import Nav from "@/components/Nav";
 import Services from "@/components/Services";
-import AuthModal, { type AuthUser } from "@/components/AuthModal";
 import BookingModal from "@/components/BookingModal";
 import type { Service } from "@/lib/services";
-
-// ─── Types ──────────────────────────────────────────────────────────────────
-type User = NavUser & { userId?: string };
 
 const GALLERY = [
   "/gallery/session1.png",
@@ -22,9 +19,9 @@ const GALLERY = [
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 export default function HomePage() {
-  const [user, setUser] = useState<User | null>(null);
-  const [showAuth, setShowAuth] = useState(false);
-  const [authMode, setAuthMode] = useState<"signin" | "signup">("signup");
+  const { isSignedIn } = useUser();
+  const { openSignIn, openSignUp } = useClerk();
+
   const [showBooking, setShowBooking] = useState(false);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [contactName, setContactName] = useState("");
@@ -34,44 +31,15 @@ export default function HomePage() {
   const [paymentSuccess, setPaymentSuccess] = useState(false);
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem("hg_user");
-      if (stored) setUser(JSON.parse(stored) as User);
-    } catch { /* ignore */ }
-  }, []);
-
-  useEffect(() => {
     if (window.location.search.includes("payment=success")) {
       setPaymentSuccess(true);
       window.history.replaceState({}, "", window.location.pathname);
     }
   }, []);
 
-  function handleAuthSuccess(u: AuthUser) {
-    const usr: User = { name: u.name, email: u.email, userId: u.userId };
-    setUser(usr);
-    try { localStorage.setItem("hg_user", JSON.stringify(usr)); } catch { /* ignore */ }
-    setShowAuth(false);
-  }
-
-  function signOut() {
-    setUser(null);
-    try { localStorage.removeItem("hg_user"); } catch { /* ignore */ }
-  }
-
-  function openAuth(mode: "signin" | "signup") {
-    setAuthMode(mode);
-    setShowAuth(true);
-  }
-
   function openBooking(service?: Service) {
+    if (!isSignedIn) { openSignIn(); return; }
     setSelectedService(service ?? null);
-    setShowBooking(true);
-  }
-
-  function openPayment(_service: Service) {
-    // Payment now flows through BookingModal after availability check
-    setSelectedService(_service);
     setShowBooking(true);
   }
 
@@ -92,7 +60,7 @@ export default function HomePage() {
 
   return (
     <>
-      <Nav user={user} onOpenAuth={openAuth} onSignOut={signOut} />
+      <Nav />
 
       <main className="overflow-x-hidden">
         {paymentSuccess && (
@@ -214,7 +182,7 @@ export default function HomePage() {
         </section>
 
         {/* ── SERVICES ──────────────────────────────────────────────────── */}
-        <Services onBook={openBooking} onOpenAuth={openAuth} isLoggedIn={!!user} />
+        <Services onBook={openBooking} onOpenAuth={() => openSignIn()} isLoggedIn={!!isSignedIn} />
 
         {/* ── GALLERY ───────────────────────────────────────────────────── */}
         <section id="gallery" className="py-28 px-6">
@@ -257,9 +225,9 @@ export default function HomePage() {
               >
                 Book Your Session
               </button>
-              {!user && (
+              {!isSignedIn && (
                 <button
-                  onClick={() => openAuth("signup")}
+                  onClick={() => openSignUp()}
                   className="border border-white/20 hover:border-amber-400 text-white font-semibold px-10 py-4 rounded-full transition-colors text-base"
                 >
                   Create Free Account
@@ -361,11 +329,8 @@ export default function HomePage() {
         </footer>
       </main>
 
-      {showAuth && (
-        <AuthModal mode={authMode} onClose={() => setShowAuth(false)} onSuccess={handleAuthSuccess} />
-      )}
       {showBooking && (
-        <BookingModal service={selectedService} user={user} onClose={() => { setShowBooking(false); setSelectedService(null); }} />
+        <BookingModal service={selectedService} onClose={() => { setShowBooking(false); setSelectedService(null); }} />
       )}
     </>
   );

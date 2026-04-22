@@ -2,17 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useUser } from "@clerk/nextjs";
 import { SERVICES, SERVICE_CATEGORIES, type Service } from "@/lib/services";
 import type { StripeInstance, StripeElements, StripeElement } from "@/types/stripe";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
-interface BookingUser {
-  name: string;
-  email: string;
-}
 interface BookingModalProps {
   service: Service | null;
-  user: BookingUser | null;
   onClose: () => void;
 }
 
@@ -43,11 +39,13 @@ interface SlotData {
 type Step = "select" | "payment" | "paying";
 
 // ─── Component ────────────────────────────────────────────────────────────────
-export default function BookingModal({ service: initialService, user, onClose }: BookingModalProps) {
+export default function BookingModal({ service: initialService, onClose }: BookingModalProps) {
   const router = useRouter();
+  const { user: clerkUser } = useUser();
+  const userName = `${clerkUser?.firstName ?? ""} ${clerkUser?.lastName ?? ""}`.trim()
+    || (clerkUser?.primaryEmailAddress?.emailAddress ?? "");
+  const userEmail = clerkUser?.primaryEmailAddress?.emailAddress ?? "";
 
-  const [name, setName] = useState(user?.name ?? "");
-  const [email, setEmail] = useState(user?.email ?? "");
   const [selectedServiceId, setSelectedServiceId] = useState(
     initialService?.id ?? ALL_SERVICES[0].id
   );
@@ -89,10 +87,8 @@ export default function BookingModal({ service: initialService, user, onClose }:
   }, [date, fetchSlots]);
 
   async function handleProceedToPayment() {
-    if (!name.trim()) { setError("Please enter your name."); return; }
-    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setError("Please enter a valid email address."); return;
-    }
+    if (!userName) { setError("Name missing from your profile. Please update your account settings."); return; }
+    if (!userEmail) { setError("Email missing from your profile. Please update your account settings."); return; }
     if (!date) { setError("Please select a date."); return; }
     if (!time) { setError("Please select a time slot."); return; }
     setError(null);
@@ -108,8 +104,8 @@ export default function BookingModal({ service: initialService, user, onClose }:
             service: chosen.title,
             date,
             time,
-            name: name.trim(),
-            email: email.trim().toLowerCase(),
+            name: userName,
+            email: userEmail,
           },
         }),
       });
@@ -186,8 +182,8 @@ export default function BookingModal({ service: initialService, user, onClose }:
       service: chosen.title,
       date,
       time,
-      name: name.trim(),
-      email: email.trim().toLowerCase(),
+      name: userName,
+      email: userEmail,
     });
 
     const { error: submitError } = await stripeElements.submit();
@@ -216,8 +212,6 @@ export default function BookingModal({ service: initialService, user, onClose }:
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        name: name.trim(),
-        email: email.trim().toLowerCase(),
         service: chosen.title,
         date,
         time,
@@ -283,28 +277,15 @@ export default function BookingModal({ service: initialService, user, onClose }:
 
         {step === "select" && (
           <div className="px-8 py-6 space-y-5">
-            <div>
-              <label className="block text-xs font-medium text-white/60 mb-1.5">Full Name</label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Your full name"
-                autoComplete="name"
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:border-amber-400 transition-colors text-sm"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-white/60 mb-1.5">Email Address</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@email.com"
-                autoComplete="email"
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:border-amber-400 transition-colors text-sm"
-              />
+            {/* Identity read-only display */}
+            <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3">
+              <div className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center text-black font-black text-sm shrink-0">
+                {userName.charAt(0).toUpperCase() || "?"}
+              </div>
+              <div className="min-w-0">
+                <p className="text-white text-sm font-medium truncate">{userName || "Loading…"}</p>
+                <p className="text-white/40 text-xs truncate">{userEmail}</p>
+              </div>
             </div>
 
             <div>

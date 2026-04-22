@@ -2,18 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-
-export interface NavUser {
-  name: string;
-  email: string;
-  userId?: string;
-}
-
-interface NavProps {
-  user: NavUser | null;
-  onOpenAuth: (mode: "signin" | "signup") => void;
-  onSignOut: () => void;
-}
+import { useUser, useClerk, SignInButton, SignUpButton } from "@clerk/nextjs";
 
 const NAV_LINKS = [
   { label: "Services", href: "#services" },
@@ -21,7 +10,10 @@ const NAV_LINKS = [
   { label: "Gallery", href: "#gallery" },
 ];
 
-export default function Nav({ user, onOpenAuth, onSignOut }: NavProps) {
+export default function Nav() {
+  const { user, isSignedIn } = useUser();
+  const { signOut } = useClerk();
+
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -31,6 +23,11 @@ export default function Nav({ user, onOpenAuth, onSignOut }: NavProps) {
     window.addEventListener("scroll", handler, { passive: true });
     return () => window.removeEventListener("scroll", handler);
   }, []);
+
+  const displayName =
+    `${user?.firstName ?? ""} ${user?.lastName ?? ""}`.trim() ||
+    (user?.primaryEmailAddress?.emailAddress ?? "");
+  const initial = displayName.charAt(0).toUpperCase();
 
   return (
     <nav
@@ -67,24 +64,27 @@ export default function Nav({ user, onOpenAuth, onSignOut }: NavProps) {
 
         {/* Desktop auth */}
         <div className="hidden md:flex items-center gap-3">
-          {user ? (
+          {isSignedIn ? (
             <div className="relative">
               <button
                 onClick={() => setUserMenuOpen((v) => !v)}
                 className="flex items-center gap-2 text-sm text-white/80 hover:text-white transition-colors"
               >
                 <div className="w-7 h-7 rounded-full bg-amber-500 flex items-center justify-center text-black font-bold text-xs">
-                  {user.name.charAt(0).toUpperCase()}
+                  {initial}
                 </div>
-                <span className="max-w-30 truncate">{user.name.split(" ")[0]}</span>
+                <span className="max-w-30 truncate">{user?.firstName ?? displayName.split(" ")[0]}</span>
                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
               </button>
+
               {userMenuOpen && (
                 <div className="absolute right-0 top-full mt-2 w-48 bg-zinc-900 border border-white/10 rounded-xl shadow-xl overflow-hidden">
                   <div className="px-4 py-3 border-b border-white/10">
-                    <p className="text-xs text-white/50 truncate">{user.email}</p>
+                    <p className="text-xs text-white/50 truncate">
+                      {user?.primaryEmailAddress?.emailAddress}
+                    </p>
                   </div>
                   <Link
                     href="/dashboard"
@@ -92,16 +92,18 @@ export default function Nav({ user, onOpenAuth, onSignOut }: NavProps) {
                     className="flex items-center gap-2 w-full px-4 py-3 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors"
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
                     </svg>
                     My Dashboard
                   </Link>
                   <button
-                    onClick={() => { setUserMenuOpen(false); onSignOut(); }}
+                    onClick={() => { setUserMenuOpen(false); signOut(() => { window.location.href = "/"; }); }}
                     className="flex items-center gap-2 w-full px-4 py-3 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors border-t border-white/5"
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                     </svg>
                     Sign out
                   </button>
@@ -110,18 +112,16 @@ export default function Nav({ user, onOpenAuth, onSignOut }: NavProps) {
             </div>
           ) : (
             <>
-              <button
-                onClick={() => onOpenAuth("signin")}
-                className="text-sm text-white/70 hover:text-white font-medium transition-colors"
-              >
-                Sign in
-              </button>
-              <button
-                onClick={() => onOpenAuth("signup")}
-                className="bg-amber-500 hover:bg-amber-400 text-black text-sm font-bold px-4 py-2 rounded-full transition-colors"
-              >
-                Join Free
-              </button>
+              <SignInButton mode="modal">
+                <button className="text-sm text-white/70 hover:text-white font-medium transition-colors">
+                  Sign in
+                </button>
+              </SignInButton>
+              <SignUpButton mode="modal">
+                <button className="bg-amber-500 hover:bg-amber-400 text-black text-sm font-bold px-4 py-2 rounded-full transition-colors">
+                  Join Free
+                </button>
+              </SignUpButton>
             </>
           )}
         </div>
@@ -154,7 +154,7 @@ export default function Nav({ user, onOpenAuth, onSignOut }: NavProps) {
             </a>
           ))}
           <div className="flex gap-3 pt-2 border-t border-white/10">
-            {user ? (
+            {isSignedIn ? (
               <div className="flex flex-col gap-2 w-full">
                 <Link
                   href="/dashboard"
@@ -164,26 +164,30 @@ export default function Nav({ user, onOpenAuth, onSignOut }: NavProps) {
                   My Dashboard
                 </Link>
                 <button
-                  onClick={() => { setMobileOpen(false); onSignOut(); }}
+                  onClick={() => { setMobileOpen(false); signOut(() => { window.location.href = "/"; }); }}
                   className="text-sm text-white/50 hover:text-white text-left"
                 >
-                  Sign out ({user.name.split(" ")[0]})
+                  Sign out ({user?.firstName ?? displayName.split(" ")[0]})
                 </button>
               </div>
             ) : (
               <>
-                <button
-                  onClick={() => { setMobileOpen(false); onOpenAuth("signin"); }}
-                  className="text-sm text-white/70 hover:text-white font-medium"
-                >
-                  Sign in
-                </button>
-                <button
-                  onClick={() => { setMobileOpen(false); onOpenAuth("signup"); }}
-                  className="bg-amber-500 text-black text-sm font-bold px-4 py-2 rounded-full"
-                >
-                  Join Free
-                </button>
+                <SignInButton mode="modal">
+                  <button
+                    onClick={() => setMobileOpen(false)}
+                    className="text-sm text-white/70 hover:text-white font-medium"
+                  >
+                    Sign in
+                  </button>
+                </SignInButton>
+                <SignUpButton mode="modal">
+                  <button
+                    onClick={() => setMobileOpen(false)}
+                    className="bg-amber-500 text-black text-sm font-bold px-4 py-2 rounded-full"
+                  >
+                    Join Free
+                  </button>
+                </SignUpButton>
               </>
             )}
           </div>
@@ -192,3 +196,4 @@ export default function Nav({ user, onOpenAuth, onSignOut }: NavProps) {
     </nav>
   );
 }
+
